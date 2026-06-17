@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>똥 피하기</title>
+    <style>
+        /* 구겨진 공책 느낌의 배경 스타일링 */
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #f0f0f0;
+            font-family: 'Malgun Gothic', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        #game-container {
+            position: relative;
+            width: 400px;
+            height: 600px;
+            background-color: #faf9f5;
+            /* 구겨진 종이 질감 효과 (그라디언트 활용) */
+            background-image: 
+                linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(0,0,0,0.03) 50%, rgba(255,255,255,0) 100%),
+                linear-gradient(180deg, rgba(0,0,0,0.02) 0%, rgba(0,0,0,0) 80%, rgba(0,0,0,0.04) 100%),
+                linear-gradient(115deg, rgba(0,0,0,0) 40%, rgba(0,0,0,0.02) 45%, rgba(0,0,0,0.05) 50%, rgba(0,0,0,0.02) 55%, rgba(0,0,0,0) 60%);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        canvas {
+            display: block;
+            background: transparent;
+        }
+
+        /* UI 레이어 공통 */
+        .screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            box-sizing: border-box;
+            padding: 20px;
+        }
+
+        h1 {
+            font-size: 40px;
+            color: #333;
+            margin-bottom: 30px;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.1);
+        }
+
+        .btn {
+            width: 160px;
+            padding: 12px;
+            margin: 10px;
+            border: 2px solid #333;
+            background-color: #fff;
+            color: #333;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s;
+            border-radius: 5px;
+        }
+
+        .btn:hover {
+            background-color: #333;
+            color: #fff;
+        }
+
+        /* 상점 UI */
+        #shop-screen {
+            background-color: rgba(250, 249, 245, 0.95);
+            display: none;
+        }
+
+        .shop-info {
+            font-size: 18px;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+
+        .stat-container {
+            border: 2px dashed #999;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+            width: 80%;
+        }
+
+        /* 게임 오버 화면 */
+        #gameover-screen {
+            background-color: rgba(255, 255, 255, 0.85);
+            display: none;
+        }
+
+        /* 인게임 UI 표시 */
+        #hud {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            right: 10px;
+            display: flex;
+            justify-content: space-between;
+            font-weight: bold;
+            font-size: 14px;
+            color: #444;
+            pointer-events: none;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <div id="menu-screen" class="screen">
+        <h1>똥 피하기</h1>
+        <button class="btn" onclick="startGame()">게임 시작</button>
+        <button class="btn" onclick="openShop()">상점</button>
+    </div>
+
+    <div id="shop-screen" class="screen">
+        <h1>상 점</h1>
+        <div class="shop-info">보유 코인: <span id="shop-money">0</span>원</div>
+        <div class="stat-container">
+            <div style="font-size: 16px; margin-bottom: 10px;">이동속도 증가</div>
+            <div style="font-size: 14px; color: #666; margin-bottom: 10px;" id="speed-level">LV: 1 / 10</div>
+            <button class="btn" style="width: 100%; margin: 0;" onclick="buySpeed()">강화 (1000원)</button>
+        </div>
+        <button class="btn" onclick="closeShop()">나가기</button>
+    </div>
+
+    <div id="gameover-screen" class="screen">
+        <h1 style="color: #d9534f;" id="gameover-title">게임 오버</h1>
+        <p id="final-score" style="font-weight: bold;">생존 시간: 0초</p>
+        <p id="earned-money" style="font-weight: bold; color: #b8860b;">획득 코인: 0원</p>
+        <button class="btn" onclick="toMenu()">메인으로</button>
+    </div>
+
+    <div id="hud">
+        <div id="hud-score">시간: 0.0s</div>
+        <div id="hud-stage" style="color: #333;">STAGE: 일반</div>
+        <div id="hud-money">코인: 0원</div>
+    </div>
+
+    <canvas id="gameCanvas" width="400" height="600"></canvas>
+</div>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // UI 요소들
+    const menuScreen = document.getElementById('menu-screen');
+    const shopScreen = document.getElementById('shop-screen');
+    const gameoverScreen = document.getElementById('gameover-screen');
+    const hud = document.getElementById('hud');
+
+    // 게임 상태 변수
+    let gameState = 'MENU'; // MENU, PLAYING, SHOP, GAMEOVER
+    let score = 0; // 생존 시간
+    let money = 0; // 보유 금액
+    let sessionMoney = 0; // 이번 판에 번 금액
+    let speedLevel = 1; // 이속 레벨 (최대 10)
+    const maxSpeedLevel = 10;
+
+    // 플레이어 기본 속도 및 레벨당 증가량
+    const basePlayerSpeed = 4;
+    const speedMultiplier = 0.5; 
+
+    // 인게임 객체 배열
+    let player;
+    let poops = [];
+    let coins = [];
+    let keys = {};
+    let animationFrameId;
+
+    // 시간 측정 및 보스 스테이지 관련 변수
+    let gameStartTime;
+    let isBossStage = false;
+    let lastPoopSpawnTime = 0;
+    let lastCoinSpawnTime = 0;
+    let bossAngle = 0; // 보스 패턴용 각도
+
+    // 키 입력 리스너
+    window.addEventListener('keydown', e => keys[e.code] = true);
+    window.addEventListener('keyup', e => keys[e.code] = false);
+
+    // --- 플레이어 생성 함수 ---
+    function createPlayer() {
+        return {
+            x: canvas.width / 2 - 15,
+            y: canvas.height - 50,
+            width: 30,
+            height: 45,
+            get speed() {
+                return basePlayerSpeed + (speedLevel - 1) * speedMultiplier;
+            },
+            draw() {
+                ctx.save();
+                ctx.strokeStyle = '#333';
+                ctx.lineWidth = 2.5;
+                ctx.fillStyle = '#fff';
+
+                // 쿠키틀 모양 몸체 그리기 (둥글둥글한 사람 형태)
+                ctx.beginPath();
+                // 머리
+                ctx.arc(this.x + 15, this.y + 10, 10, 0, Math.PI * 2);
+                // 왼팔
+                ctx.moveTo(this.x + 5, this.y + 15);
+                ctx.lineTo(this.x - 2, this.y + 22);
+                // 오른팔
+                ctx.moveTo(this.x + 25, this.y + 15);
+                ctx.lineTo(this.x + 32, this.y + 22);
+                // 몸통 및 다리
+                ctx.moveTo(this.x + 5, this.y + 15);
+                ctx.lineTo(this.x + 25, this.y + 15);
+                ctx.lineTo(this.x + 22, this.y + 32);
+                ctx.lineTo(this.x + 26, this.y + 45); // 오른발
+                ctx.lineTo(this.x + 18, this.y + 45);
+                ctx.lineTo(this.x + 15, this.y + 35); // 가랑이
+                ctx.lineTo(this.x + 12, this.y + 45);
+                ctx.lineTo(this.x + 4, this.y + 45);  // 왼발
+                ctx.lineTo(this.x + 8, this.y + 32);
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+
+                // 눈 달아주기 (검은 점 두 개)
+                ctx.fillStyle = '#333';
+                ctx.beginPath();
+                ctx.arc(this.x + 12, this.y + 8, 1.5, 0, Math.PI * 2);
+                ctx.arc(this.x + 18, this.y + 8, 1.5, 0, Math.PI * 2);
+                ctx.fill();
+
+                // 손에 쥔 휴지 그리기 (오른손 위치에 사각형과 돌돌 말린 선)
+                ctx.fillStyle = '#fff';
+                ctx.strokeStyle = '#666';
+                ctx.lineWidth = 1.5;
+                ctx.fillRect(this.x + 28, this.y + 18, 10, 12);
+                ctx.strokeRect(this.x + 28, this.y + 18, 10, 12);
+                // 휴지 엠보싱/결 느낌의 약한 선
+                ctx.beginPath();
+                ctx.moveTo(this.x + 28, this.y + 24);
+                ctx.lineTo(this.x + 38, this.y + 24);
+                ctx.stroke();
+
+                ctx.restore();
+            }
+        };
+    }
+
+    // --- 눈코입 없는 순수한 똥 모양 그리기 함수 ---
+    function drawPoopShape(x, y, width, height) {
+        ctx.save();
+        ctx.fillStyle = '#8B5A2B'; // 똥 색상 (갈색)
+        ctx.strokeStyle = '#5c3a1a';
+        ctx.lineWidth = 2;
+
+        ctx.beginPath();
+        // 맨 위 꼭지
+        ctx.moveTo(x + width * 0.5, y);
+        // 상단 층
+        ctx.bezierCurveTo(x + width * 0.2, y + height * 0.2, x + width * 0.1, y + height * 0.4, x + width * 0.1, y + height * 0.5);
+        // 중간 층 중간 굴곡
+        ctx.bezierCurveTo(x - width * 0.1, y + height * 0.7, x + width * 0.1, y + height * 0.8, x + width * 0.1, y + height * 0.9);
+        // 바닥면
+        ctx.bezierCurveTo(x + width * 0.3, y + height * 1.05, x + width * 0.7, y + height * 1.05, x + width * 0.9, y + height * 0.9);
+        // 우측 층 굴곡들
+        ctx.bezierCurveTo(x + width * 1.1, y + height * 0.8, x + width * 1.1, y + height * 0.7, x + width * 0.9, y + height * 0.5);
+        ctx.bezierCurveTo(x + width * 0.9, y + height * 0.4, x + width * 0.8, y + height * 0.2, x + width * 0.5, y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    // --- 코인 그리기 함수 ---
+    function drawCoinShape(x, y, radius) {
+        ctx.save();
+        // 금색 코인
+        ctx.fillStyle = '#FFD700';
+        ctx.strokeStyle = '#DAA520';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        // 안쪽 테두리 선
+        ctx.beginPath();
+        ctx.arc(x, y, radius * 0.6, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // ₩ 기호 표시 대신 얇게 100 표기
+        ctx.fillStyle = '#DAA520';
+        ctx.font = 'bold 9px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('100', x, y);
+        ctx.restore();
+    }
+
+    // --- 게임 루프 ---
+    function gameLoop(timestamp) {
+        if (gameState !== 'PLAYING') return;
+
+        // 현재 생존 시간 계산
+        score = ((timestamp - gameStartTime) / 1000).toFixed(1);
+        document.getElementById('hud-score').innerText = `시간: ${score}s`;
+        document.getElementById('hud-money').innerText = `코인: ${sessionMoney}원`;
+
+        // 25초가 지나면 보스 단계로 전환
+        if (parseFloat(score) >= 25.0 && !isBossStage) {
+            isBossStage = true;
+            document.getElementById('hud-stage').innerText = 'STAGE: 보스 등장!!';
+            document.getElementById('hud-stage').style.color = '#d9534f';
+        }
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // 1. 플레이어 이동 로직
+        if (keys['ArrowLeft'] || keys['KeyA']) {
+            player.x -= player.speed;
+            if (player.x < 0) player.x = 0;
+        }
+        if (keys['ArrowRight'] || keys['KeyD']) {
+            player.x += player.speed;
+            if (player.x > canvas.width - player.width) player.x = canvas.width - player.width;
+        }
+
+        // 플레이어 렌더링
+        player.draw();
+
+        // 2. 오브젝트 스폰 스케줄러
+        // 일반 똥 스폰 (보스 단계가 아닐 때 속도가 다 다르게 무작위 생성)
+        if (!isBossStage && timestamp - lastPoopSpawnTime > Math.max(150, 400 - score * 10)) {
+            poops.push({
+                x: Math.random() * (canvas.width - 25),
+                y: -30,
+                width: 25,
+                height: 25,
+                speed: 3 + Math.random() * 6 // 3~9 사이의 제각각 다른 무작위 속도
+            });
+            lastPoopSpawnTime = timestamp;
+        }
+
+        // 보스 단계 전용 패턴 (하늘에서 거대한 소용돌이 형태나 조밀한 폭우처럼 낙하)
+        if (isBossStage && timestamp - lastPoopSpawnTime > 80) {
+            bossAngle += 0.2;
+            // 사인파를 이용해 좌우로 흔들리며 집중 투하되는 속도가 다른 똥 무리
+            let bossX = (canvas.width / 2 - 12) + Math.sin(bossAngle) * (canvas.width / 2 - 30);
+            poops.push({
+                x: bossX,
+                y: -30,
+                width: 25,
+                height: 25,
+                speed: 4 + Math.random() * 8 // 보스단계에선 더 빠르고 변칙적인 속도
+            });
+            
+            // 가끔 무작위 똥도 추가 배치하여 난이도 상승
+            if (Math.random() < 0.3) {
+                poops.push({
+                    x: Math.random() * (canvas.width - 25),
+                    y: -30,
+                    width: 25,
+                    height: 25,
+                    speed: 2 + Math.random() * 5
+                });
+            }
+            lastPoopSpawnTime = timestamp;
+        }
+
+        // 코인 스폰 (일정 주기로 낙하)
+        if (timestamp - lastCoinSpawnTime > 2500) {
+            coins.push({
+                x: Math.random() * (canvas.width - 20) + 10,
+                y: -20,
+                radius: 10,
+                speed: 2.5 + Math.random() * 2
+            });
+            lastCoinSpawnTime = timestamp;
+        }
+
+        // 3. 똥 업데이트 및 충돌 체크
+        for (let i = poops.length - 1; i >= 0; i--) {
+            let p = poops[i];
+            p.y += p.speed;
+
+            // 그리기
+            drawPoopShape(p.x, p.y, p.width, p.height);
+
+            // 화면 밖으로 나가면 제거
+            if (p.y > canvas.height) {
+                poops.splice(i, 1);
+                continue;
+            }
+
+            // 충돌 판정 (히트박스는 보정을 위해 살짝 작게 세팅)
+            if (p.x + 4 < player.x + player.width &&
+                p.x + p.width - 4 > player.x &&
+                p.y + 4 < player.y + player.height &&
+                p.y + p.height - 2 > player.y) {
+                gameOver();
+                return;
+            }
+        }
+
+        // 4. 코인 업데이트 및 먹기 체크
+        for (let i = coins.length - 1; i >= 0; i--) {
+            let c = coins[i];
+            c.y += c.speed;
+
+            // 그리기
+            drawCoinShape(c.x, c.y, c.radius);
+
+            // 화면 밖 제거
+            if (c.y - c.radius > canvas.height) {
+                coins.splice(i, 1);
+                continue;
+            }
+
+            // 코인 획득 판정 (원과 상자의 충돌판정 간소화)
+            if (c.x + c.radius > player.x &&
+                c.x - c.radius < player.x + player.width &&
+                c.y + c.radius > player.y &&
+                c.y - c.radius < player.y + player.height) {
+                
+                sessionMoney += 100; // 개당 100원
+                coins.splice(i, 1);
+            }
+        }
+
+        animationFrameId = requestAnimationFrame(gameLoop);
+    }
+
+    // --- 게임 제어 함수들 ---
+    function startGame() {
+        menuScreen.style.display = 'none';
+        shopScreen.style.display = 'none';
+        gameoverScreen.style.display = 'none';
+        hud.style.display = 'flex';
+
+        gameState = 'PLAYING';
+        sessionMoney = 0;
+        poops = [];
+        coins = [];
+        isBossStage = false;
+        document.getElementById('hud-stage').innerText = 'STAGE: 일반';
+        document.getElementById('hud-stage').style.color = '#333';
+        
+        player = createPlayer();
+        keys = {};
+        
+        gameStartTime = performance.now();
+        lastPoopSpawnTime = gameStartTime;
+        lastCoinSpawnTime = gameStartTime;
+
+        animationFrameId = requestAnimationFrame(gameLoop);
+    }
+
+    function gameOver() {
+        gameState = 'GAMEOVER';
+        cancelAnimationFrame(animationFrameId);
+        
+        // 데이터 누적 저장
+        money += sessionMoney;
+
+        hud.style.display = 'none';
+        document.getElementById('final-score').innerText = `생존 시간: ${score}초`;
+        document.getElementById('earned-money').innerText = `획득 코인: ${sessionMoney}원 (총 ${money}원)`;
+        
+        if(isBossStage) {
+            document.getElementById('gameover-title').innerText = "장렬히 전사";
+        } else {
+            document.getElementById('gameover-title').innerText = "게임 오버";
+        }
+        
+        gameoverScreen.style.display = 'flex';
+    }
+
+    function toMenu() {
+        gameoverScreen.style.display = 'none';
+        shopScreen.style.display = 'none';
+        menuScreen.style.display = 'flex';
+        gameState = 'MENU';
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+
+    // --- 상점 시스템 기능 ---
+    function openShop() {
+        menuScreen.style.display = 'none';
+        shopScreen.style.display = 'flex';
+        gameState = 'SHOP';
+        updateShopUI();
+    }
+
+    function closeShop() {
+        shopScreen.style.display = 'none';
+        menuScreen.style.display = 'flex';
+        gameState = 'MENU';
+    }
+
+    function updateShopUI() {
+        document.getElementById('shop-money').innerText = money;
+        const upgradeBtn = shopScreen.querySelector('.stat-container .btn');
+        
+        if (speedLevel >= maxSpeedLevel) {
+            document.getElementById('speed-level').innerText = `LV: ${speedLevel} (MAX)`;
+            upgradeBtn.innerText = `강화 완료`;
+            upgradeBtn.disabled = true;
+            upgradeBtn.style.backgroundColor = '#ccc';
+            upgradeBtn.style.cursor = 'default';
+        } else {
+            document.getElementById('speed-level').innerText = `LV: ${speedLevel} / ${maxSpeedLevel}`;
+            upgradeBtn.innerText = `강화 (1000원)`;
+            upgradeBtn.disabled = false;
+            upgradeBtn.style.backgroundColor = '#fff';
+            upgradeBtn.style.cursor = 'pointer';
+        }
+    }
+
+    function buySpeed() {
+        if (speedLevel >= maxSpeedLevel) return;
+
+        if (money >= 1000) {
+            money -= 1000;
+            speedLevel++;
+            updateShopUI();
+            alert(`강화 성공! 이동속도가 증가했습니다. (현재 Lv.${speedLevel})`);
+        } else {
+            alert("코인이 부족합니다! 게임을 플레이하여 코인을 모아오세요.");
+        }
+    }
+</script>
+
+</body>
+</html>
